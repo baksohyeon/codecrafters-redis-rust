@@ -2,10 +2,9 @@
 #
 # These can be VERY verbose, so we suggest turning them off
 # unless you really need them.
-debug: false
+debug: true
 
 # Use this to change the Rust version used to run your code
 # on Codecrafters.
-#
 # Available versions: rust-1.77
 language_pack: rust-1.77
