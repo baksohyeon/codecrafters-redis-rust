@@ -1,35 +1,36 @@
-[![progress-banner](https://backend.codecrafters.io/progress/redis/e1db8ba7-ba34-4b19-a5a1-da909601dcde)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# Makefile
 
-This is a starting point for Rust solutions to the
-["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
+TARGET_DIR=/tmp/codecrafters-redis-target
+TARGET=$(TARGET_DIR)/release/redis-starter-rust
+MANIFEST_PATH=Cargo.toml
 
-In this challenge, you'll build a toy Redis clone that's capable of handling
-basic commands like `PING`, `SET` and `GET`. Along the way we'll learn about
-event loops, the Redis protocol and more.
+.PHONY: all build run test
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+all: build run
 
-# Passing the first stage
+build:
+cd $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))) && \
+	cargo build --release --target-dir=$(TARGET_DIR) --manifest-path=$(MANIFEST_PATH)
 
-The entry point for your Redis implementation is in `src/main.rs`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+run: build
+$(TARGET) $(ARGS)
 
-```sh
-git add .
-git commit -m "pass 1st stage" # any msg
-git push origin master
-```
+kill:
+kill -9 $(shell lsof -t -i:6379)
 
-That's all!
+# 추가된 부분: .codecrafters/compile.sh 스크립트 내용
 
-# Stage 2 & beyond
+compile:
+set -e && \
+ cargo build --release --target-dir=$(TARGET_DIR) --manifest-path=$(MANIFEST_PATH)
 
-Note: This section is for stages 2 and beyond.
+# 추가된 부분: .codecrafters/run.sh 스크립트 내용
 
-1. Ensure you have `cargo (1.54)` installed locally
-1. Run `./your_program.sh` to run your Redis server, which is implemented in
-   `src/main.rs`. This command compiles your Rust project, so it might be slow
-   the first time you run it. Subsequent runs will be fast.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+run_codecrafters: compile
+set -e && \
+ exec $(TARGET) "$@"
+
+# 테스트 단계 추가
+
+test:
+cargo test
