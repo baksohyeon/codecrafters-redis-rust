@@ -1,36 +1,35 @@
-# Makefile
+[![progress-banner](https://backend.codecrafters.io/progress/redis/e1db8ba7-ba34-4b19-a5a1-da909601dcde)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
-TARGET_DIR=/tmp/codecrafters-redis-target
-TARGET=$(TARGET_DIR)/release/redis-starter-rust
-MANIFEST_PATH=Cargo.toml
+This is a starting point for Rust solutions to the
+["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
 
-.PHONY: all build run test
+In this challenge, you'll build a toy Redis clone that's capable of handling
+basic commands like `PING`, `SET` and `GET`. Along the way we'll learn about
+event loops, the Redis protocol and more.
 
-all: build run
+**Note**: If you're viewing this repo on GitHub, head over to
+[codecrafters.io](https://codecrafters.io) to try the challenge.
 
-build:
-cd $(shell dirname $(realpath $(firstword $(MAKEFILE_LIST)))) && \
-	cargo build --release --target-dir=$(TARGET_DIR) --manifest-path=$(MANIFEST_PATH)
+# Passing the first stage
 
-run: build
-$(TARGET) $(ARGS)
+The entry point for your Redis implementation is in `src/main.rs`. Study and
+uncomment the relevant code, and push your changes to pass the first stage:
 
-kill:
-kill -9 $(shell lsof -t -i:6379)
+```sh
+git add .
+git commit -m "pass 1st stage" # any msg
+git push origin master
+```
 
-# 추가된 부분: .codecrafters/compile.sh 스크립트 내용
+That's all!
 
-compile:
-set -e && \
- cargo build --release --target-dir=$(TARGET_DIR) --manifest-path=$(MANIFEST_PATH)
+# Stage 2 & beyond
 
-# 추가된 부분: .codecrafters/run.sh 스크립트 내용
+Note: This section is for stages 2 and beyond.
 
-run_codecrafters: compile
-set -e && \
- exec $(TARGET) "$@"
-
-# 테스트 단계 추가
-
-test:
-cargo test
+1. Ensure you have `cargo (1.54)` installed locally
+1. Run `./your_program.sh` to run your Redis server, which is implemented in
+   `src/main.rs`. This command compiles your Rust project, so it might be slow
+   the first time you run it. Subsequent runs will be fast.
+1. Commit your changes and run `git push origin master` to submit your solution
+   to CodeCrafters. Test output will be streamed to your terminal.
