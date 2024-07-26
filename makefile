@@ -1,4 +1,8 @@
 
+lint: 
+	cargo fmt && \
+	cargo clippy --fix --allow-dirty
+
 test:
 	codecrafters test
 
