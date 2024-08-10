@@ -6,6 +6,10 @@ lint:
 test:
 	codecrafters test
 
+test-all:
+	codecrafters test --previous
+	
+
 submit:
 	git stash && git checkout master && git pull && git stash apply && \
 	codecrafters submit
