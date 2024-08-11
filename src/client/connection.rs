@@ -100,6 +100,18 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
     //     _ => None,
     // };
 
+    
+    // let args: Option<String> = match &commands[3] {
+    //     RespValue::BulkString(s) | RespValue::SimpleString(s) => Some(s.to_uppercase()),
+    //     RespValue::BinaryBulkString(b) => {
+    //         match String::from_utf8(b.clone()) {
+    //             Ok(s) => Some(s.to_uppercase()),
+    //             Err(_) => return RespValue::Error("ERR invalid command: non-UTF8 data".to_string()),
+    //         }
+    //     },
+    //     _ => None,
+    // };
+
     match command.as_str() {
         "PING" => RespValue::SimpleString("PONG".to_string()),
         "SET" => {
