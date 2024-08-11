@@ -49,7 +49,6 @@ async fn handle_client(stream: TcpStream, data_store: Arc<Mutex<CacheStore>>) ->
             Ok(RespValue::Array(commands)) => {
                 println!("handle_client: redis_reader: {:?}\n commands: {:?} \n \n", redis_reader, commands);
                 let response = process_command(commands, &data_store);
-                // writer.write_all(&RespCodec::encode(&response))?;
                 redis_writer.write_all(&RespCodec::encode(&response))?;
                 redis_writer.flush()?;
                 println!("handle_client: response: {:?} \n \n", response);
@@ -100,18 +99,6 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
     //     _ => None,
     // };
 
-    
-    // let args: Option<String> = match &commands[3] {
-    //     RespValue::BulkString(s) | RespValue::SimpleString(s) => Some(s.to_uppercase()),
-    //     RespValue::BinaryBulkString(b) => {
-    //         match String::from_utf8(b.clone()) {
-    //             Ok(s) => Some(s.to_uppercase()),
-    //             Err(_) => return RespValue::Error("ERR invalid command: non-UTF8 data".to_string()),
-    //         }
-    //     },
-    //     _ => None,
-    // };
-
     match command.as_str() {
         "PING" => RespValue::SimpleString("PONG".to_string()),
         "SET" => {
@@ -135,8 +122,14 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
                 },
                 _ => return RespValue::Error("ERR invalid value: expected string".to_string()),
             };
-            let mut store = data_store.lock().unwrap();
-            store.set(key, value, None);
+            
+            let expiry = if commands.len() > 3 {
+                parse_px(&commands[3..])
+            } else {
+                None
+            };
+
+            store.set(key, value, expiry);
             RespValue::SimpleString("OK".to_string())
         }
         "GET" => {
@@ -153,9 +146,15 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
                 _ => return RespValue::Error("ERR invalid key: expected string".to_string()),
             };
             let store = data_store.lock().unwrap();
+            println!("process_command: store: {:?}", store);
             match store.get(&key) {
-                Some(value) => RespValue::BulkString(value),
-                None => RespValue::Error("ERR key not found".to_string()),
+                Some(value) => {
+                    if value.is_empty() {
+                        return RespValue::Null;
+                    }
+                    return RespValue::BulkString(value.clone());
+                },
+                None => RespValue::Null,
             }
         }
         "ECHO" => {

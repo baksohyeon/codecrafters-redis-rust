@@ -4,6 +4,23 @@ use super::model::RespValue;
 pub struct RespCodec;
 
 impl RespCodec {
+    // pub fn serialize_command(command: &str, args: &[&str]) -> Vec<u8> {
+    //     let mut result = Vec::new();
+        
+    //     // 배열의 길이 (명령어 + 인자들)
+    //     result.extend_from_slice(format!("*{}\r\n", args.len() + 1).as_bytes());
+        
+    //     // 명령어 직렬화
+    //     result.extend_from_slice(format!("${}\r\n{}\r\n", command.len(), command).as_bytes());
+        
+    //     // 인자들 직렬화
+    //     for arg in args {
+    //         result.extend_from_slice(format!("${}\r\n{}\r\n", arg.len(), arg).as_bytes());
+    //     }
+        
+    //     result
+    // }
+
     pub fn encode(value: &RespValue) -> Vec<u8> {
         match value {
             RespValue::SimpleString(s) => format!("+{}\r\n", s).into_bytes(),
@@ -72,7 +89,9 @@ impl RespCodec {
                 let mut buf = String::new();
                 reader.read_line(&mut buf)?;
                 let len: i64 = buf.trim_end().parse().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-                // println!("decode: len: {:?}, buf: {:?}", len, buf);
+                if buf.is_empty() {
+                    return Ok(RespValue::Null);
+                }
                 if len == -1 {
                     return Ok(RespValue::NullArray);
                 }
@@ -82,7 +101,6 @@ impl RespCodec {
                 let mut array = Vec::with_capacity(len as usize);
                 for _ in 0..len {
                     array.push(Self::decode(reader)?);
-                    println!("decode: resp-value array: {:?}", array);
                 }
 
                 Ok(RespValue::Array(array))
