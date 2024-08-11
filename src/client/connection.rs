@@ -1,6 +1,7 @@
 use std::net::{TcpListener, TcpStream};
 use std::io::{BufReader, BufWriter, Write};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::task;
 use super::cache_store::CacheStore;
 use super::codec::RespCodec;
@@ -75,6 +76,7 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
         return RespValue::Error("ERR no command specified".to_string());
     }
 
+
     let command = match &commands[0] {
         RespValue::BulkString(s) | RespValue::SimpleString(s) => s.to_uppercase(),
         RespValue::BinaryBulkString(b) => {
@@ -86,12 +88,25 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
         _ => return RespValue::Error("ERR invalid command: expected string".to_string()),
     };
 
+    
+    // let args: Option<String> = match &commands[3] {
+    //     RespValue::BulkString(s) | RespValue::SimpleString(s) => Some(s.to_uppercase()),
+    //     RespValue::BinaryBulkString(b) => {
+    //         match String::from_utf8(b.clone()) {
+    //             Ok(s) => Some(s.to_uppercase()),
+    //             Err(_) => return RespValue::Error("ERR invalid command: non-UTF8 data".to_string()),
+    //         }
+    //     },
+    //     _ => None,
+    // };
+
     match command.as_str() {
         "PING" => RespValue::SimpleString("PONG".to_string()),
         "SET" => {
             if commands.len() < 3 {
                 return RespValue::Error("ERR wrong number of arguments for 'set' command: expected 3".to_string());
             }
+            let mut store = data_store.lock().unwrap();
             let key = match &commands[1] {
                 RespValue::BulkString(s) | RespValue::SimpleString(s) => s.clone(),
                 RespValue::BinaryBulkString(b) => match String::from_utf8(b.clone()) {
@@ -116,6 +131,7 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
             if commands.len() < 2 {
                 return RespValue::Error("ERR wrong number of arguments for 'get' command: expected 2".to_string());
             }
+
             let key = match &commands[1] {
                 RespValue::BulkString(s) | RespValue::SimpleString(s) => s.clone(),
                 RespValue::BinaryBulkString(b) => match String::from_utf8(b.clone()) {
@@ -138,4 +154,34 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
         }
         _ => RespValue::Error(format!("ERR unknown command: {}", command)),
     }
+}
+
+
+fn parse_px(args: &[RespValue]) -> Option<Duration> {
+    let px = match &args[0] {
+        RespValue::BulkString(s) | RespValue::SimpleString(s) => s.to_uppercase(),
+        RespValue::BinaryBulkString(b) => match String::from_utf8(b.clone()) {
+            Ok(s) => s.to_string().to_uppercase(),
+            Err(_) => return None,
+        },
+        _ => return None,
+    };
+
+    if px != "PX" {
+        return None;
+    }
+
+    let ms = match &args[1] {
+        RespValue::Integer(i) => *i as u64,
+        RespValue::BulkString(s) | RespValue::SimpleString(s) => s.parse().ok()?,
+        RespValue::BinaryBulkString(b) => match String::from_utf8(b.clone()) {
+            Ok(s) => s.parse().ok()?,
+            Err(_) => return None,
+        },
+        _ => return None,
+    };
+
+    println!("ms: {:?}", ms);
+
+    Some(Duration::from_millis(ms))
 }

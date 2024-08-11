@@ -57,7 +57,14 @@ impl RespCodec {
                     return Ok(RespValue::Null);
                 }
                 let mut bulk = vec![0u8; len as usize];
-                reader.read_exact(&mut bulk)?;
+                let mut total_read = 0;
+                while total_read < len as usize {
+                    let read = reader.read(&mut bulk[total_read..])?;
+                    if read == 0 {
+                        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "Unexpected EOF while reading bulk string"));
+                    }
+                    total_read += read;
+                }
                 reader.read_exact(&mut [0u8; 2])?; // Read and discard CRLF
                 Ok(RespValue::BinaryBulkString(bulk))
             }
@@ -69,6 +76,9 @@ impl RespCodec {
                 if len == -1 {
                     return Ok(RespValue::NullArray);
                 }
+
+
+
                 let mut array = Vec::with_capacity(len as usize);
                 for _ in 0..len {
                     array.push(Self::decode(reader)?);
