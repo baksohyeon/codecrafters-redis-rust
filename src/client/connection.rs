@@ -1,11 +1,12 @@
+use super::cache_store::CacheStore;
+use super::codec::RespCodec;
+use super::model::RespValue;
+use std::io::{BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
 use std::io::{BufReader, BufWriter, Write, BufRead, Read};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::task;
-use super::cache_store::CacheStore;
-use super::codec::RespCodec;
-use super::model::RespValue;
 
 // Empty RDB file content (hex decoded)
 const EMPTY_RDB_FILE: &[u8] = &[
@@ -349,7 +350,10 @@ async fn handle_client(
             }
             Ok(other) => {
                 eprintln!("handle_client: Unexpected data type: {:?}", other);
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Expected array"));
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Expected array",
+                ));
             }
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                 eprintln!("handle_client: Unexpected EOF: {}", e);

@@ -13,8 +13,6 @@ pub struct CacheStore {
     data: HashMap<String, CacheValue>,
 }
 
-
-
 impl CacheStore {
     pub fn new() -> Self {
         CacheStore {
@@ -29,7 +27,6 @@ impl CacheStore {
         };
         self.data.insert(key, CacheValue { value, expires_at });
     }
-
     pub fn get(&self, key: &str) -> Option<String> {
         self.data.get(key).and_then(|cache_value| {
             match cache_value.expires_at {

@@ -1,5 +1,5 @@
-use std::io::{self, BufRead};
 use super::model::RespValue;
+use std::io::{self, BufRead};
 
 pub struct RespCodec;
 
@@ -32,7 +32,7 @@ impl RespCodec {
                 result.extend(b);
                 result.extend(b"\r\n");
                 result
-            },
+            }
             RespValue::Array(arr) => {
                 let mut result = format!("*{}\r\n", arr.len()).into_bytes();
                 for item in arr {
@@ -63,13 +63,19 @@ impl RespCodec {
             b':' => {
                 let mut buf = String::new();
                 reader.read_line(&mut buf)?;
-                let num = buf.trim_end().parse().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                let num = buf
+                    .trim_end()
+                    .parse()
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
                 Ok(RespValue::Integer(num))
             }
             b'$' => {
                 let mut buf = String::new();
                 reader.read_line(&mut buf)?;
-                let len: i64 = buf.trim_end().parse().map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                let len: i64 = buf
+                    .trim_end()
+                    .parse()
+                    .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
                 if len == -1 {
                     return Ok(RespValue::Null);
                 }
@@ -105,7 +111,10 @@ impl RespCodec {
 
                 Ok(RespValue::Array(array))
             }
-            _ => Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid RESP data")),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid RESP data",
+            )),
         }
     }
 }
