@@ -163,6 +163,10 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
             }
             commands[1].clone()
         }
+        "INFO" => {
+            let info = "role:master".to_string();
+            RespValue::BulkString(info)
+        }
         _ => RespValue::Error(format!("ERR unknown command: {}", command)),
     }
 }
