@@ -108,6 +108,8 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
     //     _ => None,
     // };
 
+    // println!("\n\nargs: {:?}\n\n", args.clone());
+
     match command.as_str() {
         "PING" => RespValue::SimpleString("PONG".to_string()),
         "SET" => {
@@ -173,12 +175,23 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
             commands[1].clone()
         }
         "INFO" => {
+            println!("\n\nreplica_config: {:?}\n\n", replica_config.clone());
             let role = if replica_config.is_some() {
                 "role:slave"
             } else {
                 "role:master"
             };
-            RespValue::BulkString(role.to_string())
+            
+            // Add master replication ID and offset for master instances
+            let info_response = if replica_config.is_none() {
+                // This is a master instance
+                format!("{}\r\nmaster_replid:8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb\r\nmaster_repl_offset:0", role)
+            } else {
+                // This is a slave instance, only return role
+                role.to_string()
+            };
+            
+            RespValue::BulkString(info_response)
         }
         _ => RespValue::Error(format!("ERR unknown command: {}", command)),
     }
