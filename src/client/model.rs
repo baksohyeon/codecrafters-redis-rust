@@ -15,44 +15,44 @@ pub enum RespValue {
 }
 
 impl RespValue {
-    pub fn is_null(&self) -> bool {
-        match self {
-            RespValue::Null => true,
-            RespValue::NullArray => true,
-            _ => false,
-        }
-    }
+    // pub fn is_null(&self) -> bool {
+    //     match self {
+    //         RespValue::Null => true,
+    //         RespValue::NullArray => true,
+    //         _ => false,
+    //     }
+    // }
 
 
-    pub fn is_error(&self) -> bool {
-        matches!(self, RespValue::Error(_))
-    }
+    // pub fn is_error(&self) -> bool {
+    //     matches!(self, RespValue::Error(_))
+    // }
 
-    pub fn is_array(&self) -> bool {
-        match self {
-            RespValue::Array(_) => true,
-            RespValue::NullArray => true,
-            RespValue::BinaryBulkString(_) => true,
-            _ => false,
-        }
-    }
+    // pub fn is_array(&self) -> bool {
+    //     match self {
+    //         RespValue::Array(_) => true,
+    //         RespValue::NullArray => true,
+    //         RespValue::BinaryBulkString(_) => true,
+    //         _ => false,
+    //     }
+    // }
 
-    pub fn to_string(&self) -> String {
-        match self {
-            RespValue::SimpleString(s) => s.clone(),
-            RespValue::BulkString(s) => s.clone(),
-            RespValue::Array(s) => {
-                let mut response: Vec<u8> = Vec::new();
-                response.push(b'*');
-                response.extend_from_slice(s.len().to_string().as_bytes());
-                response.push(b'\r');
-                response.push(b'\n');
-                for item in s {
-                    response.extend_from_slice(item.to_string().as_bytes());
-                }
-                String::from_utf8(response).unwrap_or_default()
-            }
-            _ => "".to_string(),
-        }
-    }
+    // pub fn to_string(&self) -> String {
+    //     match self {
+    //         RespValue::SimpleString(s) => s.clone(),
+    //         RespValue::BulkString(s) => s.clone(),
+    //         RespValue::Array(s) => {
+    //             let mut response: Vec<u8> = Vec::new();
+    //             response.push(b'*');
+    //             response.extend_from_slice(s.len().to_string().as_bytes());
+    //             response.push(b'\r');
+    //             response.push(b'\n');
+    //             for item in s {
+    //                 response.extend_from_slice(item.to_string().as_bytes());
+    //             }
+    //             String::from_utf8(response).unwrap_or_default()
+    //         }
+    //         _ => "".to_string(),
+    //     }
+    // }
 }

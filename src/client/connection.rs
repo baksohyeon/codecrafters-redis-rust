@@ -7,18 +7,26 @@ use super::cache_store::CacheStore;
 use super::codec::RespCodec;
 use super::model::RespValue;
 
+#[derive(Debug, Clone)]
+pub struct ReplicaConfig {
+    pub master_host: String,
+    pub master_port: u16,
+}
+
 pub struct RedisServer {
     host: String,
     port: u16,
     data_store: Arc<Mutex<CacheStore>>,
+    replica_config: Option<ReplicaConfig>,
 }
 
 impl RedisServer {
-    pub fn new(host: String, port: u16) -> Self {
+    pub fn new(host: String, port: u16, replica_config: Option<ReplicaConfig>) -> Self {
         RedisServer {
             host,
             port,
             data_store: Arc::new(Mutex::new(CacheStore::new())),
+            replica_config,
         }
     }
 
@@ -29,9 +37,10 @@ impl RedisServer {
         loop {
             let (stream, _) = listener.accept()?;
             let data_store = Arc::clone(&self.data_store);
+            let replica_config = self.replica_config.clone();
             println!("Accepted connection");
             task::spawn(async move {
-                if let Err(e) = handle_client(stream, data_store).await {
+                if let Err(e) = handle_client(stream, data_store, replica_config).await {
                     eprintln!("Error handling client: {}", e);
                 }
             });
@@ -40,7 +49,7 @@ impl RedisServer {
 }
 
 
-async fn handle_client(stream: TcpStream, data_store: Arc<Mutex<CacheStore>>) -> std::io::Result<()> {
+async fn handle_client(stream: TcpStream, data_store: Arc<Mutex<CacheStore>>, replica_config: Option<ReplicaConfig>) -> std::io::Result<()> {
     let mut redis_reader = BufReader::new(&stream);
     let mut redis_writer = BufWriter::new(&stream);
 
@@ -48,7 +57,7 @@ async fn handle_client(stream: TcpStream, data_store: Arc<Mutex<CacheStore>>) ->
         match RespCodec::decode(&mut redis_reader) {
             Ok(RespValue::Array(commands)) => {
                 println!("handle_client: redis_reader: {:?}\n commands: {:?} \n \n", redis_reader, commands);
-                let response = process_command(commands, &data_store);
+                let response = process_command(commands, &data_store, &replica_config);
                 redis_writer.write_all(&RespCodec::encode(&response))?;
                 redis_writer.flush()?;
                 println!("handle_client: response: {:?} \n \n", response);
@@ -70,7 +79,7 @@ async fn handle_client(stream: TcpStream, data_store: Arc<Mutex<CacheStore>>) ->
 
     Ok(())
 }
-fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>) -> RespValue {
+fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>, replica_config: &Option<ReplicaConfig>) -> RespValue {
     if commands.is_empty() {
         return RespValue::Error("ERR no command specified".to_string());
     }
@@ -164,8 +173,12 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
             commands[1].clone()
         }
         "INFO" => {
-            let info = "role:master".to_string();
-            RespValue::BulkString(info)
+            let role = if replica_config.is_some() {
+                "role:slave"
+            } else {
+                "role:master"
+            };
+            RespValue::BulkString(role.to_string())
         }
         _ => RespValue::Error(format!("ERR unknown command: {}", command)),
     }
