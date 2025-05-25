@@ -11,9 +11,6 @@ async fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
     // Parse port
     let mut master_port = 6379u16;
-    // let mut master_host = "127.0.0.1".to_string();
-    // let mut master_replid = "".to_string();
-    // let mut master_repl_offset = 0u64;
     let mut replica_config: Option<ReplicaConfig> = None;
     let mut i = 1;
     while i < args.len() {
