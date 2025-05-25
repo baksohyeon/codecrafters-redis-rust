@@ -9,8 +9,14 @@ use super::model::RespValue;
 
 #[derive(Debug, Clone)]
 pub struct ReplicaConfig {
-    pub master_host: String,
-    pub master_port: u16,
+    pub master_host: Option<String>,
+    pub master_port: Option<u16>,
+    pub replica_host: String,
+    pub replica_port: u16,
+    pub role: String,
+    pub master_replid: String,
+    pub master_repl_offset: u64,
+    pub connected_slaves: u32,
 }
 
 pub struct RedisServer {
@@ -31,6 +37,17 @@ impl RedisServer {
     }
 
     pub async fn run(&self) -> std::io::Result<()> {
+        // If this is a replica, initiate handshake with master
+        if let Some(ref config) = self.replica_config {
+            if let (Some(master_host), Some(master_port)) = (&config.master_host, config.master_port) {
+                println!("Connecting to master at {}:{}", master_host, master_port);
+                if let Err(e) = self.initiate_replica_handshake(master_host, master_port).await {
+                    eprintln!("Failed to connect to master: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+
         let listener = TcpListener::bind(format!("{}:{}", self.host, self.port))?;
         println!("Listening on {}:{}", self.host, self.port);
 
@@ -44,6 +61,46 @@ impl RedisServer {
                     eprintln!("Error handling client: {}", e);
                 }
             });
+        }
+    }
+
+    async fn initiate_replica_handshake(&self, master_host: &str, master_port: u16) -> std::io::Result<()> {
+        // Connect to master
+        let master_stream = TcpStream::connect(format!("{}:{}", master_host, master_port))?;
+        let mut master_reader = BufReader::new(&master_stream);
+        let mut master_writer = BufWriter::new(&master_stream);
+
+        // Send PING command as RESP Array: *1\r\n$4\r\nPING\r\n
+        let ping_command = RespValue::Array(vec![
+            RespValue::BulkString("PING".to_string())
+        ]);
+        
+        let encoded_ping = RespCodec::encode(&ping_command);
+        master_writer.write_all(&encoded_ping)?;
+        master_writer.flush()?;
+        
+        println!("Sent PING to master: {:?}", String::from_utf8_lossy(&encoded_ping));
+
+        // Read response from master
+        match RespCodec::decode(&mut master_reader) {
+            Ok(response) => {
+                println!("Received response from master: {:?}", response);
+                // Expected response should be +PONG\r\n
+                match response {
+                    RespValue::SimpleString(s) if s == "PONG" => {
+                        println!("Successfully received PONG from master");
+                        Ok(())
+                    }
+                    _ => {
+                        eprintln!("Unexpected response from master: {:?}", response);
+                        Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unexpected response from master"))
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Error reading response from master: {}", e);
+                Err(e)
+            }
         }
     }
 }
@@ -175,6 +232,7 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
             commands[1].clone()
         }
         "INFO" => {
+            // TODO replica info 
             println!("\n\nreplica_config: {:?}\n\n", replica_config.clone());
             let role = if replica_config.is_some() {
                 "role:slave"
