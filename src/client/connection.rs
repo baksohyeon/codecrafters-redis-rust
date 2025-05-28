@@ -326,6 +326,15 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
             // and just respond with +OK\r\n ("OK" encoded as a RESP Simple String)
             RespValue::SimpleString("OK".to_string())
         }
+        "PSYNC" => {
+            // The master responds with +FULLRESYNC <REPL_ID> 0\r\n
+            // FULLRESYNC means full resynchronization (not incremental)
+            // <REPL_ID> is the replication ID of the master
+            // 0 is the replication offset of the master
+            let repl_id = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb";
+            let response = format!("FULLRESYNC {} 0", repl_id);
+            RespValue::SimpleString(response)
+        }
         "INFO" => {
             // TODO replica info 
             println!("\n\nreplica_config: {:?}\n\n", replica_config.clone());
