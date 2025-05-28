@@ -1,5 +1,5 @@
 use std::net::{TcpListener, TcpStream};
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufReader, BufWriter, Write, BufRead, Read};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::task;
@@ -35,11 +35,36 @@ pub struct ReplicaConfig {
     pub connected_slaves: u32,
 }
 
+// Structure to hold replica connection information
+#[derive(Debug)]
+struct ReplicaConnection {
+    writer: Arc<Mutex<BufWriter<TcpStream>>>,
+}
+
+impl ReplicaConnection {
+    fn new(stream: TcpStream) -> Self {
+        let writer = BufWriter::new(stream);
+        ReplicaConnection {
+            writer: Arc::new(Mutex::new(writer)),
+        }
+    }
+
+    fn propagate_command(&self, command: &RespValue) -> std::io::Result<()> {
+        let mut writer = self.writer.lock().unwrap();
+        let encoded = RespCodec::encode(command);
+        writer.write_all(&encoded)?;
+        writer.flush()?;
+        println!("Propagated command to replica: {:?}", command);
+        Ok(())
+    }
+}
+
 pub struct RedisServer {
     host: String,
     port: u16,
     data_store: Arc<Mutex<CacheStore>>,
     replica_config: Option<ReplicaConfig>,
+    replica_connections: Arc<Mutex<Vec<ReplicaConnection>>>,
 }
 
 impl RedisServer {
@@ -49,6 +74,7 @@ impl RedisServer {
             port,
             data_store: Arc::new(Mutex::new(CacheStore::new())),
             replica_config,
+            replica_connections: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -71,9 +97,10 @@ impl RedisServer {
             let (stream, _) = listener.accept()?;
             let data_store = Arc::clone(&self.data_store);
             let replica_config = self.replica_config.clone();
+            let replica_connections = Arc::clone(&self.replica_connections);
             println!("Accepted connection");
             task::spawn(async move {
-                if let Err(e) = handle_client(stream, data_store, replica_config).await {
+                if let Err(e) = handle_client(stream, data_store, replica_config, replica_connections).await {
                     eprintln!("Error handling client: {}", e);
                 }
             });
@@ -207,6 +234,27 @@ impl RedisServer {
                 match response {
                     RespValue::SimpleString(s) if s.starts_with("FULLRESYNC") => {
                         println!("Successfully received FULLRESYNC from master: {}", s);
+                        
+                        // After FULLRESYNC, we need to read the RDB file
+                        // Read the RDB file header: $<length>\r\n
+                        let mut rdb_header = String::new();
+                        master_reader.read_line(&mut rdb_header)?;
+                        
+                        if rdb_header.starts_with('$') {
+                            let rdb_length: usize = rdb_header[1..].trim().parse()
+                                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                            
+                            // Read the RDB file content
+                            let mut rdb_content = vec![0u8; rdb_length];
+                            master_reader.read_exact(&mut rdb_content)?;
+                            
+                            println!("Received RDB file from master ({} bytes)", rdb_length);
+                            
+                            // Now we're ready to receive commands from master
+                            // Start listening for propagated commands
+                            self.listen_for_propagated_commands(master_reader).await?;
+                        }
+                        
                         Ok(())
                     }
                     _ => {
@@ -221,24 +269,54 @@ impl RedisServer {
             }
         }
     }
+
+    async fn listen_for_propagated_commands(&self, mut master_reader: BufReader<&TcpStream>) -> std::io::Result<()> {
+        loop {
+            match RespCodec::decode(&mut master_reader) {
+                Ok(RespValue::Array(commands)) => {
+                    println!("Received propagated command from master: {:?}", commands);
+                    // Process the command without sending a response back
+                    let _ = process_command_for_replica(commands, &self.data_store);
+                }
+                Ok(other) => {
+                    println!("Received unexpected data from master: {:?}", other);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                    println!("Master connection closed");
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("Error reading from master: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
-
-async fn handle_client(stream: TcpStream, data_store: Arc<Mutex<CacheStore>>, replica_config: Option<ReplicaConfig>) -> std::io::Result<()> {
+async fn handle_client(
+    stream: TcpStream, 
+    data_store: Arc<Mutex<CacheStore>>, 
+    replica_config: Option<ReplicaConfig>,
+    replica_connections: Arc<Mutex<Vec<ReplicaConnection>>>
+) -> std::io::Result<()> {
+    let stream_for_replica = stream.try_clone()?;
     let mut redis_reader = BufReader::new(&stream);
     let mut redis_writer = BufWriter::new(&stream);
 
     loop {
         match RespCodec::decode(&mut redis_reader) {
             Ok(RespValue::Array(commands)) => {
-                println!("handle_client: redis_reader: {:?}\n commands: {:?} \n \n", redis_reader, commands);
-                let response = process_command(commands, &data_store, &replica_config);
+                println!("handle_client: commands: {:?}", commands);
+                
+                let response = process_command(commands.clone(), &data_store, &replica_config);
                 
                 match response {
                     CommandResponse::Normal(resp_value) => {
                         redis_writer.write_all(&RespCodec::encode(&resp_value))?;
                         redis_writer.flush()?;
-                        println!("handle_client: response: {:?} \n \n", resp_value);
+                        println!("handle_client: response: {:?}", resp_value);
                     }
                     CommandResponse::PsyncWithRdb(resp_value) => {
                         // First send the FULLRESYNC response
@@ -252,7 +330,21 @@ async fn handle_client(stream: TcpStream, data_store: Arc<Mutex<CacheStore>>, re
                         redis_writer.write_all(EMPTY_RDB_FILE)?;
                         redis_writer.flush()?;
                         println!("handle_client: sent RDB file ({} bytes)", EMPTY_RDB_FILE.len());
+                        
+                        // Add this connection to replica connections for command propagation
+                        let replica_conn = ReplicaConnection::new(stream_for_replica);
+                        replica_connections.lock().unwrap().push(replica_conn);
+                        println!("Added replica connection for command propagation");
+                        
+                        // Keep the connection alive for command propagation
+                        // The replica will keep reading commands from this connection
+                        return Ok(());
                     }
+                }
+                
+                // If this is a write command and we're a master, propagate to replicas
+                if replica_config.is_none() && is_write_command(&commands) {
+                    propagate_to_replicas(&replica_connections, &RespValue::Array(commands));
                 }
             }
             Ok(other) => {
@@ -272,11 +364,42 @@ async fn handle_client(stream: TcpStream, data_store: Arc<Mutex<CacheStore>>, re
 
     Ok(())
 }
+
+fn is_write_command(commands: &[RespValue]) -> bool {
+    if let Some(first_command) = commands.get(0) {
+        let cmd = match first_command {
+            RespValue::BulkString(s) | RespValue::SimpleString(s) => s.to_uppercase(),
+            RespValue::BinaryBulkString(b) => {
+                match String::from_utf8(b.clone()) {
+                    Ok(s) => s.to_uppercase(),
+                    Err(_) => return false,
+                }
+            },
+            _ => return false,
+        };
+        
+        match cmd.as_str() {
+            "SET" | "DEL" | "INCR" | "DECR" | "LPUSH" | "RPUSH" | "LPOP" | "RPOP" => true,
+            _ => false,
+        }
+    } else {
+        false
+    }
+}
+
+fn propagate_to_replicas(replica_connections: &Arc<Mutex<Vec<ReplicaConnection>>>, command: &RespValue) {
+    let connections = replica_connections.lock().unwrap();
+    for replica in connections.iter() {
+        if let Err(e) = replica.propagate_command(command) {
+            eprintln!("Failed to propagate command to replica: {}", e);
+        }
+    }
+}
+
 fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>, replica_config: &Option<ReplicaConfig>) -> CommandResponse {
     if commands.is_empty() {
         return CommandResponse::Normal(RespValue::Error("ERR no command specified".to_string()));
     }
-
 
     let command = match &commands[0] {
         RespValue::BulkString(s) | RespValue::SimpleString(s) => s.to_uppercase(),
@@ -288,8 +411,6 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
         },
         _ => return CommandResponse::Normal(RespValue::Error("ERR invalid command: expected string".to_string())),
     };
-
-    
 
     match command.as_str() {
         "PING" => CommandResponse::Normal(RespValue::SimpleString("PONG".to_string())),
@@ -393,7 +514,6 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
     }
 }
 
-
 fn parse_px(args: &[RespValue]) -> Option<Duration> {
     let px = match &args[0] {
         RespValue::BulkString(s) | RespValue::SimpleString(s) => s.to_uppercase(),
@@ -421,4 +541,59 @@ fn parse_px(args: &[RespValue]) -> Option<Duration> {
     println!("ms: {:?}", ms);
 
     Some(Duration::from_millis(ms))
+}
+
+fn process_command_for_replica(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>) {
+    if commands.is_empty() {
+        return;
+    }
+
+    let command = match &commands[0] {
+        RespValue::BulkString(s) | RespValue::SimpleString(s) => s.to_uppercase(),
+        RespValue::BinaryBulkString(b) => {
+            match String::from_utf8(b.clone()) {
+                Ok(s) => s.to_uppercase(),
+                Err(_) => return,
+            }
+        },
+        _ => return,
+    };
+
+    match command.as_str() {
+        "SET" => {
+            if commands.len() < 3 {
+                return;
+            }
+            let mut store = data_store.lock().unwrap();
+            let key = match &commands[1] {
+                RespValue::BulkString(s) | RespValue::SimpleString(s) => s.clone(),
+                RespValue::BinaryBulkString(b) => match String::from_utf8(b.clone()) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                },
+                _ => return,
+            };
+            let value = match &commands[2] {
+                RespValue::BulkString(s) | RespValue::SimpleString(s) => s.clone(),
+                RespValue::BinaryBulkString(b) => match String::from_utf8(b.clone()) {
+                    Ok(s) => s,
+                    Err(_) => return,
+                },
+                _ => return,
+            };
+            
+            let expiry = if commands.len() > 3 {
+                parse_px(&commands[3..])
+            } else {
+                None
+            };
+
+            store.set(key, value, expiry);
+            println!("Replica processed SET command");
+        }
+        _ => {
+            // For other write commands, we would implement them here
+            println!("Replica received command: {}", command);
+        }
+    }
 }
