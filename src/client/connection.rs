@@ -157,6 +157,40 @@ impl RedisServer {
                 match response {
                     RespValue::SimpleString(s) if s == "OK" => {
                         println!("Successfully received OK from master for REPLCONF capa psync2");
+                    }
+                    _ => {
+                        eprintln!("Unexpected response from master: {:?}", response);
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unexpected response from master"));
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Error reading response from master: {}", e);
+                return Err(e);
+            }
+        }
+
+        // Send PSYNC command: PSYNC ? -1
+        let psync_command = RespValue::Array(vec![
+            RespValue::BulkString("PSYNC".to_string()),
+            RespValue::BulkString("?".to_string()),
+            RespValue::BulkString("-1".to_string())
+        ]);
+        
+        let encoded_psync = RespCodec::encode(&psync_command);
+        master_writer.write_all(&encoded_psync)?;
+        master_writer.flush()?;
+        
+        println!("Sent PSYNC ? -1 to master: {:?}", String::from_utf8_lossy(&encoded_psync));
+
+        // Read response from master
+        match RespCodec::decode(&mut master_reader) {
+            Ok(response) => {
+                println!("Received response from master: {:?}", response);
+                // Expected response should be +FULLRESYNC <REPL_ID> 0\r\n
+                match response {
+                    RespValue::SimpleString(s) if s.starts_with("FULLRESYNC") => {
+                        println!("Successfully received FULLRESYNC from master: {}", s);
                         Ok(())
                     }
                     _ => {
