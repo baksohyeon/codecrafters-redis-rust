@@ -6,7 +6,6 @@ use client::connection::{RedisServer, ReplicaConfig};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
-    println!("Redis 서버 시작 중...");
 
     let args: Vec<String> = env::args().collect();
     // Parse port
