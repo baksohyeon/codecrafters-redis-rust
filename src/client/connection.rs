@@ -321,6 +321,11 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
             }
             commands[1].clone()
         }
+        "REPLCONF" => {
+            // For the purposes of this challenge, we can safely ignore the arguments
+            // and just respond with +OK\r\n ("OK" encoded as a RESP Simple String)
+            RespValue::SimpleString("OK".to_string())
+        }
         "INFO" => {
             // TODO replica info 
             println!("\n\nreplica_config: {:?}\n\n", replica_config.clone());
