@@ -89,6 +89,74 @@ impl RedisServer {
                 match response {
                     RespValue::SimpleString(s) if s == "PONG" => {
                         println!("Successfully received PONG from master");
+                    }
+                    _ => {
+                        eprintln!("Unexpected response from master: {:?}", response);
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unexpected response from master"));
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Error reading response from master: {}", e);
+                return Err(e);
+            }
+        }
+
+        // Send first REPLCONF command: REPLCONF listening-port <PORT>
+        let replconf_port_command = RespValue::Array(vec![
+            RespValue::BulkString("REPLCONF".to_string()),
+            RespValue::BulkString("listening-port".to_string()),
+            RespValue::BulkString(self.port.to_string())
+        ]);
+        
+        let encoded_replconf_port = RespCodec::encode(&replconf_port_command);
+        master_writer.write_all(&encoded_replconf_port)?;
+        master_writer.flush()?;
+        
+        println!("Sent REPLCONF listening-port to master: {:?}", String::from_utf8_lossy(&encoded_replconf_port));
+
+        // Read response from master
+        match RespCodec::decode(&mut master_reader) {
+            Ok(response) => {
+                println!("Received response from master: {:?}", response);
+                // Expected response should be +OK\r\n
+                match response {
+                    RespValue::SimpleString(s) if s == "OK" => {
+                        println!("Successfully received OK from master for REPLCONF listening-port");
+                    }
+                    _ => {
+                        eprintln!("Unexpected response from master: {:?}", response);
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unexpected response from master"));
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Error reading response from master: {}", e);
+                return Err(e);
+            }
+        }
+
+        // Send second REPLCONF command: REPLCONF capa psync2
+        let replconf_capa_command = RespValue::Array(vec![
+            RespValue::BulkString("REPLCONF".to_string()),
+            RespValue::BulkString("capa".to_string()),
+            RespValue::BulkString("psync2".to_string())
+        ]);
+        
+        let encoded_replconf_capa = RespCodec::encode(&replconf_capa_command);
+        master_writer.write_all(&encoded_replconf_capa)?;
+        master_writer.flush()?;
+        
+        println!("Sent REPLCONF capa psync2 to master: {:?}", String::from_utf8_lossy(&encoded_replconf_capa));
+
+        // Read response from master
+        match RespCodec::decode(&mut master_reader) {
+            Ok(response) => {
+                println!("Received response from master: {:?}", response);
+                // Expected response should be +OK\r\n
+                match response {
+                    RespValue::SimpleString(s) if s == "OK" => {
+                        println!("Successfully received OK from master for REPLCONF capa psync2");
                         Ok(())
                     }
                     _ => {
