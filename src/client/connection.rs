@@ -284,10 +284,16 @@ async fn listen_for_propagated_commands_with_streams(
     mut master_writer: BufWriter<TcpStream>, 
     data_store: Arc<Mutex<CacheStore>>
 ) -> std::io::Result<()> {
+    let mut offset: u64 = 0; // Track bytes processed
+    
     loop {
         match RespCodec::decode(&mut master_reader) {
             Ok(RespValue::Array(commands)) => {
                 println!("Received propagated command from master: {:?}", commands);
+                
+                // Calculate the byte length of this command
+                let command_bytes = RespCodec::encode(&RespValue::Array(commands.clone()));
+                let command_byte_length = command_bytes.len() as u64;
                 
                 // Check if this is a REPLCONF GETACK command
                 if let Some(first_command) = commands.get(0) {
@@ -315,24 +321,36 @@ async fn listen_for_propagated_commands_with_streams(
                         };
                         
                         if subcommand == "GETACK" {
-                            // Respond with REPLCONF ACK 0
+                            // Respond with REPLCONF ACK <current_offset>
+                            // The offset should be the bytes processed BEFORE this GETACK command
                             let ack_response = RespValue::Array(vec![
                                 RespValue::BulkString("REPLCONF".to_string()),
                                 RespValue::BulkString("ACK".to_string()),
-                                RespValue::BulkString("0".to_string())
+                                RespValue::BulkString(offset.to_string())
                             ]);
                             
                             let encoded_response = RespCodec::encode(&ack_response);
                             master_writer.write_all(&encoded_response)?;
                             master_writer.flush()?;
-                            println!("Sent REPLCONF ACK 0 response to master");
+                            println!("Sent REPLCONF ACK {} response to master", offset);
+                            
+                            // Now update the offset to include this GETACK command
+                            offset += command_byte_length;
                             continue;
                         }
                     }
+                    
+                    // Handle PING command silently (no response to master)
+                    if command == "PING" {
+                        println!("Received PING from master, updating offset silently");
+                        offset += command_byte_length;
+                        continue;
+                    }
                 }
                 
-                // Process the command without sending a response back (for non-GETACK commands)
+                // Process other commands and update offset
                 process_command_for_replica(commands, &data_store);
+                offset += command_byte_length;
             }
             Ok(other) => {
                 println!("Received unexpected data from master: {:?}", other);
