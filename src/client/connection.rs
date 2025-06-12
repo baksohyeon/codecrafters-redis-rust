@@ -110,8 +110,10 @@ impl RedisServer {
     async fn initiate_replica_handshake(&self, master_host: &str, master_port: u16) -> std::io::Result<()> {
         // Connect to master
         let master_stream = TcpStream::connect(format!("{}:{}", master_host, master_port))?;
-        let mut master_reader = BufReader::new(&master_stream);
-        let mut master_writer = BufWriter::new(&master_stream);
+        let reader_stream = master_stream.try_clone()?;
+        let writer_stream = master_stream.try_clone()?;
+        let mut master_reader = BufReader::new(reader_stream);
+        let mut master_writer = BufWriter::new(writer_stream);
 
         // Send PING command as RESP Array: *1\r\n$4\r\nPING\r\n
         let ping_command = RespValue::Array(vec![
@@ -251,11 +253,10 @@ impl RedisServer {
                             println!("Received RDB file from master ({} bytes)", rdb_length);
                             
                             // Now we're ready to receive commands from master
-                            // Clone the stream for the listening task to avoid borrowing issues
-                            let master_stream_clone = master_stream.try_clone()?;
+                            // Use the existing reader and writer for the listening task
                             let data_store = Arc::clone(&self.data_store);
                             task::spawn(async move {
-                                if let Err(e) = listen_for_propagated_commands(master_stream_clone, data_store).await {
+                                if let Err(e) = listen_for_propagated_commands_with_streams(master_reader, master_writer, data_store).await {
                                     eprintln!("Error listening for propagated commands: {}", e);
                                 }
                             });
@@ -277,14 +278,12 @@ impl RedisServer {
     }
 }
 
-// Move listen_for_propagated_commands outside the impl block and make it a standalone function
-async fn listen_for_propagated_commands(master_stream: TcpStream, data_store: Arc<Mutex<CacheStore>>) -> std::io::Result<()> {
-    let reader_stream = master_stream.try_clone()?;
-    let writer_stream = master_stream;
-    
-    let mut master_reader = BufReader::new(reader_stream);
-    let mut master_writer = BufWriter::new(writer_stream);
-    
+// Function that takes existing reader and writer streams
+async fn listen_for_propagated_commands_with_streams(
+    mut master_reader: BufReader<TcpStream>, 
+    mut master_writer: BufWriter<TcpStream>, 
+    data_store: Arc<Mutex<CacheStore>>
+) -> std::io::Result<()> {
     loop {
         match RespCodec::decode(&mut master_reader) {
             Ok(RespValue::Array(commands)) => {
@@ -349,6 +348,17 @@ async fn listen_for_propagated_commands(master_stream: TcpStream, data_store: Ar
         }
     }
     Ok(())
+}
+
+// Move listen_for_propagated_commands outside the impl block and make it a standalone function
+async fn listen_for_propagated_commands(master_stream: TcpStream, data_store: Arc<Mutex<CacheStore>>) -> std::io::Result<()> {
+    let reader_stream = master_stream.try_clone()?;
+    let writer_stream = master_stream;
+    
+    let master_reader = BufReader::new(reader_stream);
+    let master_writer = BufWriter::new(writer_stream);
+    
+    listen_for_propagated_commands_with_streams(master_reader, master_writer, data_store).await
 }
 
 async fn handle_client(
