@@ -597,6 +597,11 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
             
             CommandResponse::Normal(RespValue::BulkString(info_response))
         }
+        "WAIT" => {
+            // WAIT numreplicas timeout
+            // For this stage, we hardcode 0 since no replicas are connected
+            CommandResponse::Normal(RespValue::Integer(0))
+        }
         _ => CommandResponse::Normal(RespValue::Error(format!("ERR unknown command: {}", command))),
     }
 }
