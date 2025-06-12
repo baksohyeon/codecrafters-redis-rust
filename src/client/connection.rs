@@ -337,11 +337,8 @@ async fn handle_client(
                         println!("Added replica connection for command propagation");
                         
                         // Keep the connection alive for command propagation
-                        // The replica will keep reading commands from this connection, but we don't
-                        // need to process any more commands from the replica itself
-                        loop {
-                            std::thread::sleep(std::time::Duration::from_secs(1));
-                        }
+                        // The replica will keep reading commands from this connection
+                        return Ok(());
                     }
                 }
                 
