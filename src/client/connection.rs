@@ -1,9 +1,8 @@
 use super::cache_store::CacheStore;
 use super::codec::RespCodec;
 use super::model::RespValue;
-use std::io::{BufReader, BufWriter, Write};
-use std::net::{TcpListener, TcpStream};
 use std::io::{BufReader, BufWriter, Write, BufRead, Read};
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::task;
@@ -338,8 +337,11 @@ async fn handle_client(
                         println!("Added replica connection for command propagation");
                         
                         // Keep the connection alive for command propagation
-                        // The replica will keep reading commands from this connection
-                        return Ok(());
+                        // The replica will keep reading commands from this connection, but we don't
+                        // need to process any more commands from the replica itself
+                        loop {
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                        }
                     }
                 }
                 

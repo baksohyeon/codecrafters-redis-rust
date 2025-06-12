@@ -13,7 +13,7 @@ async fn main() -> std::io::Result<()> {
     let mut replica_config: Option<ReplicaConfig> = None;
     let mut i = 1;
     while i < args.len() {
-        println!("args[{}] = {:?} equals to '{}'", i, args[i], args[i+1]);
+        println!("args[{}] = {:?}", i, args[i]);
 
         match args[i].as_str() {
             // master port
