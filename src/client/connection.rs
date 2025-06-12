@@ -279,13 +279,60 @@ impl RedisServer {
 
 // Move listen_for_propagated_commands outside the impl block and make it a standalone function
 async fn listen_for_propagated_commands(master_stream: TcpStream, data_store: Arc<Mutex<CacheStore>>) -> std::io::Result<()> {
-    let mut master_reader = BufReader::new(&master_stream);
+    let reader_stream = master_stream.try_clone()?;
+    let writer_stream = master_stream;
+    
+    let mut master_reader = BufReader::new(reader_stream);
+    let mut master_writer = BufWriter::new(writer_stream);
     
     loop {
         match RespCodec::decode(&mut master_reader) {
             Ok(RespValue::Array(commands)) => {
                 println!("Received propagated command from master: {:?}", commands);
-                // Process the command without sending a response back
+                
+                // Check if this is a REPLCONF GETACK command
+                if let Some(first_command) = commands.get(0) {
+                    let command = match first_command {
+                        RespValue::BulkString(s) | RespValue::SimpleString(s) => s.to_uppercase(),
+                        RespValue::BinaryBulkString(b) => {
+                            match String::from_utf8(b.clone()) {
+                                Ok(s) => s.to_uppercase(),
+                                Err(_) => String::new(),
+                            }
+                        },
+                        _ => String::new(),
+                    };
+                    
+                    if command == "REPLCONF" && commands.len() >= 3 {
+                        let subcommand = match &commands[1] {
+                            RespValue::BulkString(s) | RespValue::SimpleString(s) => s.to_uppercase(),
+                            RespValue::BinaryBulkString(b) => {
+                                match String::from_utf8(b.clone()) {
+                                    Ok(s) => s.to_uppercase(),
+                                    Err(_) => String::new(),
+                                }
+                            },
+                            _ => String::new(),
+                        };
+                        
+                        if subcommand == "GETACK" {
+                            // Respond with REPLCONF ACK 0
+                            let ack_response = RespValue::Array(vec![
+                                RespValue::BulkString("REPLCONF".to_string()),
+                                RespValue::BulkString("ACK".to_string()),
+                                RespValue::BulkString("0".to_string())
+                            ]);
+                            
+                            let encoded_response = RespCodec::encode(&ack_response);
+                            master_writer.write_all(&encoded_response)?;
+                            master_writer.flush()?;
+                            println!("Sent REPLCONF ACK 0 response to master");
+                            continue;
+                        }
+                    }
+                }
+                
+                // Process the command without sending a response back (for non-GETACK commands)
                 process_command_for_replica(commands, &data_store);
             }
             Ok(other) => {
