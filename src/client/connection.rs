@@ -394,7 +394,7 @@ async fn handle_client(
             Ok(RespValue::Array(commands)) => {
                 println!("handle_client: commands: {:?}", commands);
                 
-                let response = process_command(commands.clone(), &data_store, &replica_config);
+                let response = process_command(commands.clone(), &data_store, &replica_config, &replica_connections);
                 
                 match response {
                     CommandResponse::Normal(resp_value) => {
@@ -483,7 +483,7 @@ fn propagate_to_replicas(replica_connections: &Arc<Mutex<Vec<ReplicaConnection>>
     }
 }
 
-fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>, replica_config: &Option<ReplicaConfig>) -> CommandResponse {
+fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>, replica_config: &Option<ReplicaConfig>, replica_connections: &Arc<Mutex<Vec<ReplicaConnection>>>) -> CommandResponse {
     if commands.is_empty() {
         return CommandResponse::Normal(RespValue::Error("ERR no command specified".to_string()));
     }
@@ -599,8 +599,9 @@ fn process_command(commands: Vec<RespValue>, data_store: &Arc<Mutex<CacheStore>>
         }
         "WAIT" => {
             // WAIT numreplicas timeout
-            // For this stage, we hardcode 0 since no replicas are connected
-            CommandResponse::Normal(RespValue::Integer(0))
+            // Return the actual number of connected replicas
+            let replica_count = replica_connections.lock().unwrap().len() as u64;
+            CommandResponse::Normal(RespValue::Integer(replica_count))
         }
         _ => CommandResponse::Normal(RespValue::Error(format!("ERR unknown command: {}", command))),
     }
