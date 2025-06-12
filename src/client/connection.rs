@@ -251,8 +251,14 @@ impl RedisServer {
                             println!("Received RDB file from master ({} bytes)", rdb_length);
                             
                             // Now we're ready to receive commands from master
-                            // Start listening for propagated commands
-                            self.listen_for_propagated_commands(master_reader).await?;
+                            // Clone the stream for the listening task to avoid borrowing issues
+                            let master_stream_clone = master_stream.try_clone()?;
+                            let data_store = Arc::clone(&self.data_store);
+                            task::spawn(async move {
+                                if let Err(e) = listen_for_propagated_commands(master_stream_clone, data_store).await {
+                                    eprintln!("Error listening for propagated commands: {}", e);
+                                }
+                            });
                         }
                         
                         Ok(())
@@ -269,30 +275,33 @@ impl RedisServer {
             }
         }
     }
+}
 
-    async fn listen_for_propagated_commands(&self, mut master_reader: BufReader<&TcpStream>) -> std::io::Result<()> {
-        loop {
-            match RespCodec::decode(&mut master_reader) {
-                Ok(RespValue::Array(commands)) => {
-                    println!("Received propagated command from master: {:?}", commands);
-                    // Process the command without sending a response back
-                    let _ = process_command_for_replica(commands, &self.data_store);
-                }
-                Ok(other) => {
-                    println!("Received unexpected data from master: {:?}", other);
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    println!("Master connection closed");
-                    break;
-                }
-                Err(e) => {
-                    eprintln!("Error reading from master: {}", e);
-                    return Err(e);
-                }
+// Move listen_for_propagated_commands outside the impl block and make it a standalone function
+async fn listen_for_propagated_commands(master_stream: TcpStream, data_store: Arc<Mutex<CacheStore>>) -> std::io::Result<()> {
+    let mut master_reader = BufReader::new(&master_stream);
+    
+    loop {
+        match RespCodec::decode(&mut master_reader) {
+            Ok(RespValue::Array(commands)) => {
+                println!("Received propagated command from master: {:?}", commands);
+                // Process the command without sending a response back
+                process_command_for_replica(commands, &data_store);
+            }
+            Ok(other) => {
+                println!("Received unexpected data from master: {:?}", other);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                println!("Master connection closed");
+                break;
+            }
+            Err(e) => {
+                eprintln!("Error reading from master: {}", e);
+                return Err(e);
             }
         }
-        Ok(())
     }
+    Ok(())
 }
 
 async fn handle_client(
